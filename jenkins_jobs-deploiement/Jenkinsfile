@@ -1,0 +1,75 @@
+properties([
+    parameters([
+        gitParameter(   branch:'',
+                        branchFilter:'origin/(.*)',
+                        defaultValue:'master',
+                        description:'Selectionnez la version a deployer',
+                        name: 'VERSION_SCRIPT',
+                        quickFilterEnabled: false,
+                        selectedValue: 'NONE',
+                        sortMode: 'NONE',
+                        tagFilter: '*',
+                        type: 'PT_BRANCH_TAG',
+                        useRepository: 'https://github.com/jabadymandry/CME_updatewifikey.git'
+        ),
+    ])
+])
+
+
+node{
+    stage("Nettoyage workspace"){
+        sh "rm -rf *"
+    }
+
+    stage('Checkout source code') {
+                checkout([$class: 'GitSCM', 
+                          branches: [[name: "${params.VERSION_SCRIPT}"]], 
+                          doGenerateSubmoduleConfigurations: false, 
+                          extensions: [], 
+                          gitTool: 'Default', 
+                          submoduleCfg: [], 
+                          userRemoteConfigs: [[url: 'https://github.com/jabadymandry/CME_updatewifikey.git']]
+                        ])
+    }
+   stage('Definition des parametres') {
+        timeout(time: 2, unit: 'MINUTES'){
+            script{
+                    sh "cd jenkins_jobs-deploiement && python parse_inventory.py"
+                    echo "${WORKSPACE}/jenkins_jobs-deploiement/section_inventory.txt"
+                    def liste = readFile ("${WORKSPACE}/jenkins_jobs-deploiement/section_inventory.txt")
+                    echo "Contenu de liste: ${liste}"
+                    DEP_ENV = input message: 'Selectionnez environnement de deployement', ok: 'Valider',
+                    parameters:[[$class: 'ChoiceParameterDefinition', name: 'DEPLOY_TO',choices:liste, description: 'Environnement destination deploiement']]
+                }
+                echo "Environnement: ${DEP_ENV} Version: ${params.VERSION_SCRIPT}"
+        }
+    }
+/*     stage('Compilation du programme'){
+        timeout(time: 2, unit: 'MINUTES'){
+            sh 'pyinstaller -F CMEUpdateWifiKey.py'
+        }
+    } */
+    stage('Preparation du package'){
+        sh 'mkdir CmeUpdateWifiKey && cp  *.py *.conf *.json CmeUpdateWifiKey/'
+    }
+
+    stage ('Test des scripts'){
+        print 'Verification des syntaxes des scripts'
+        ansiColor('xterm'){
+            ansiblePlaybook( colorized: true, inventory: 'jenkins_jobs-deploiement/inventory', playbook: 'jenkins_jobs-deploiement/main_bin.yml', extras: "--syntax-check --extra-vars=deploy_to=${DEP_ENV}")
+        }
+    }
+    stage ('List Tasks'){
+        print 'Les taches a effectuer : '
+        ansiColor('xterm'){
+            ansiblePlaybook (colorized: true, inventory:'jenkins_jobs-deploiement/inventory', playbook: 'jenkins_jobs-deploiement/main_bin.yml', extras: "--list-tasks --extra-vars=deploy_to=${DEP_ENV}")
+        }
+    }
+
+    stage('Deploiement'){
+        print 'Debut de deploiement :'
+        ansiColor('xterm'){
+            ansiblePlaybook (colorized:true, inventory:'jenkins_jobs-deploiement/inventory', playbook: 'jenkins_jobs-deploiement/main_bin.yml', extras: "--extra-vars=deploy_to=${DEP_ENV}")
+        }
+    }
+}

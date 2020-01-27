@@ -1,0 +1,65 @@
+---
+- name: "Hote: Serveur {{deploy_to}}"
+  hosts: "{{deploy_to}}"
+
+  gather_facts: yes
+  
+  tasks:
+    - name: "Installation python"
+      apt:
+        name:
+          - python3
+        state: present
+        update_cache: yes
+      tags: installation
+
+    - name: "Installation modules"
+      shell: "pip3 install {{item}}"
+      with_items:
+        - gspread
+        - oauth2client
+        - pyasn1-modules
+        - netmiko
+        - loguru
+
+      tags: installation
+
+    - name: "Upload du script dans /usr/local/bin"
+      copy:
+        src: "../CmeUpdateWifiKey"
+        dest: "/usr/local/bin/"
+        backup: yes
+        mode: '0755'
+      tags:
+        - uploads
+      
+    - name: "Parametrage fichier de configuration"
+      file:
+        src: "/usr/local/bin/CmeUpdateWifiKey"
+        dest: "/etc/CmeUpdateWifiKey"
+        state: link
+        owner: root
+        group: root
+      tags:
+        - parametrage
+      
+    - name: "Test de l'application"
+      shell: "cd /etc/CmeUpdateWifiKey ;python3.7 /etc/CmeUpdateWifiKey/CMEUpdateWifiKey.py"
+      register: output
+      tags:
+        - tests
+
+    # Print the shell task's stdout.
+    - debug: 
+        var: output.stdout_lines
+      tags:
+        - tests
+
+    - name: "Configuration cron"
+      cron:
+        name: "CMEUpdateWifiKey"
+        minute: "0"
+        hour: "18"
+        job: "cd /etc/CmeUpdateWifiKey ;python3.7 /etc/CmeUpdateWifiKey/CMEUpdateWifiKey.py >> /var/log/CME_updatewifikey.log"
+      tags:
+        - cron
